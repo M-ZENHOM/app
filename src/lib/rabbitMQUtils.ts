@@ -1,5 +1,6 @@
 import amqp, { Channel, Connection } from 'amqplib';
 import { supabase } from '../db';
+import { backOff } from "exponential-backoff";
 
 export interface VideoJob {
     id: string;
@@ -22,18 +23,26 @@ export interface VideoJob {
 
 const QUEUE_NAME = 'video-processing';
 
-
 export async function connectRabbitMQ(): Promise<Channel> {
-    try {
+    const connect = async () => {
         const connection: Connection = await amqp.connect(process.env.RABBITMQ_URL || 'amqp://localhost');
         const channel: Channel = await connection.createChannel();
         await channel.assertQueue(QUEUE_NAME, { durable: true });
         console.log('Connected to RabbitMQ');
+
+        connection.on('error', (err) => {
+            console.error('RabbitMQ connection error:', err);
+            throw err;
+        });
+
         return channel;
-    } catch (error) {
-        console.error('Failed to connect to RabbitMQ:', error);
-        throw error;
-    }
+    };
+
+    return backOff(connect, {
+        numOfAttempts: 5,
+        startingDelay: 1000,
+        timeMultiple: 2,
+    });
 }
 
 export async function updateJobStatus(jobId: string, status: VideoJob['status'], progress: number, result: any = null) {
@@ -60,4 +69,13 @@ export async function getJobStatus(jobId: string): Promise<VideoJob | null> {
     }
 
     return data as VideoJob | null;
+}
+
+export async function purgeQueue(channel: Channel) {
+    await channel.purgeQueue(QUEUE_NAME);
+}
+
+export async function getQueueMessageCount(channel: Channel): Promise<number> {
+    const { messageCount } = await channel.assertQueue(QUEUE_NAME, { durable: true });
+    return messageCount;
 }
