@@ -1,0 +1,16 @@
+{
+  "compilerOptions": {
+    "outDir": "./dist",
+    "sourceMap": true,
+    "target": "es6",
+    "module": "commonjs",
+    "strict": true,
+    "forceConsistentCasingInFileNames": true,
+    "noImplicitAny": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "typeRoots": ["./src/lib/types"],
+    "moduleResolution": "node"
+  },
+  "include": ["./*.js", "./*.ts", "src/**/*.ts"]
+}

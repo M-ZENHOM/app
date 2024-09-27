@@ -1,0 +1,63 @@
+import amqp, { Channel, Connection } from 'amqplib';
+import { supabase } from '../db';
+
+export interface VideoJob {
+    id: string;
+    data: {
+        sessionId: string;
+        urls: string[];
+        text: string;
+        voiceId: string;
+        isHasScript: boolean;
+        VideoStart: string;
+        VideoEnd: string;
+        subtitles: boolean;
+        voiceOver: boolean;
+        aspectRatio: string;
+    };
+    status: 'queued' | 'processing' | 'completed' | 'failed';
+    progress: number;
+    result?: any;
+}
+
+const QUEUE_NAME = 'video-processing';
+
+
+export async function connectRabbitMQ(): Promise<Channel> {
+    try {
+        const connection: Connection = await amqp.connect(process.env.RABBITMQ_URL || 'amqp://localhost');
+        const channel: Channel = await connection.createChannel();
+        await channel.assertQueue(QUEUE_NAME, { durable: true });
+        console.log('Connected to RabbitMQ');
+        return channel;
+    } catch (error) {
+        console.error('Failed to connect to RabbitMQ:', error);
+        throw error;
+    }
+}
+
+export async function updateJobStatus(jobId: string, status: VideoJob['status'], progress: number, result: any = null) {
+    const { error } = await supabase
+        .from('video_status')
+        .upsert({ video_id: jobId, status, progress, result })
+
+    if (error) {
+        console.error('Error updating video status:', error);
+        throw error;
+    }
+}
+
+export async function getJobStatus(jobId: string): Promise<VideoJob | null> {
+    const { data, error } = await supabase
+        .from('video_status')
+        .select('*')
+        .eq('video_id', jobId)
+        .single()
+
+    if (error) {
+        console.error('Error fetching video status:', error);
+        return null;
+    }
+
+    return data as VideoJob | null;
+}
