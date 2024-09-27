@@ -28,5 +28,11 @@ EXPOSE 3006
 # Set environment variables
 ENV NODE_ENV=production
 
-# Start the application
-CMD ["node", "dist/server.js"]
+# Install supervisor
+RUN apk add --no-cache supervisor
+
+# Copy supervisor configuration
+COPY supervisord.conf /etc/supervisord.conf
+
+# Set the entry point to run supervisor
+CMD ["/usr/bin/supervisord", "-c", "/etc/supervisord.conf"]
