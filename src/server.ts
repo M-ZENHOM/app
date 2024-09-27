@@ -10,150 +10,110 @@ import rateLimit from 'express-rate-limit';
 import { Channel } from 'amqplib';
 import { connectRabbitMQ, VideoJob, getJobStatus, getQueueMessageCount } from './lib/rabbitMQUtils';
 import { validator } from './lib/utils';
-import cluster from 'node:cluster';
-import { Worker } from 'cluster';
-import { promisify } from 'util';
-import os from 'os';
 
-const numCPUs = os.cpus().length;
+const PORT = process.env.PORT || 3006;
+const app = express();
+const QUEUE_NAME = 'video-processing';
 
+let channel: Channel;
 
-if (cluster.isPrimary) {
-    console.log(`Primary ${process.pid} is running`);
-    const workers: Worker[] = [];
+// Middleware
+app.use(helmet());
+app.use(express.json());
+app.use(cors());
+app.use(express.urlencoded({ extended: true }));
+app.use(compression());
 
-    // Fork workers
-    for (let i = 0; i < numCPUs; i++) {
-        workers.push(cluster.fork());
+const limiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 120,
+    standardHeaders: true,
+    legacyHeaders: false,
+});
+app.use(limiter);
+
+// Routes
+app.get('/', (_req: Request, res: Response) => {
+    res.send('Video Processing Server');
+});
+
+app.post('/processing-video', validator(videoSchema), async (req: Request, res: Response, next: NextFunction) => {
+    try {
+        const { urls, text, voiceId, isHasScript, VideoStart, VideoEnd, subtitles, voiceOver, aspectRatio } = req.body;
+        const sessionId = uuidv4();
+
+        const job: VideoJob = {
+            id: sessionId,
+            data: {
+                sessionId,
+                urls,
+                text,
+                voiceId,
+                isHasScript,
+                VideoStart,
+                VideoEnd,
+                subtitles,
+                voiceOver,
+                aspectRatio
+            },
+            status: 'queued',
+            progress: 0
+        };
+
+        await channel.sendToQueue(QUEUE_NAME, Buffer.from(JSON.stringify(job)), { persistent: true });
+
+        res.json({ message: 'Video processing job added to queue', videoId: sessionId });
+    } catch (error) {
+        next(error);
     }
+});
 
-    process.on('SIGTERM', async () => {
-        console.log('SIGTERM signal received: closing HTTP server');
-        for (const worker of workers) {
-            worker.send('shutdown');
-            await promisify(worker.disconnect.bind(worker))();
+app.get('/processing-video-status/:jobId', async (req: Request, res: Response, next: NextFunction) => {
+    try {
+        const { jobId } = req.params;
+        const jobStatus = await getJobStatus(jobId);
+
+        if (!jobStatus) {
+            return res.status(404).json({ message: 'Job not found' });
         }
-        process.exit(0);
-    });
 
-    cluster.on('exit', (worker, code, signal) => {
-        console.log(`Worker ${worker.process.pid} died`);
-        const index = workers.indexOf(worker);
-        if (index > -1) {
-            workers.splice(index, 1);
-        }
-        const newWorker = cluster.fork();
-        workers.push(newWorker);
-    });
-} else {
-    const PORT = process.env.PORT || 3006;
-    const app = express();
-    const QUEUE_NAME = 'video-processing';
-
-    app.set('trust proxy', 1);
-
-    let channel: Channel;
-
-    // Middleware
-    app.use(helmet());
-    app.use(express.json());
-    app.use(cors());
-    app.use(express.urlencoded({ extended: true }));
-    app.use(compression());
-
-    const limiter = rateLimit({
-        windowMs: 15 * 60 * 1000,
-        max: 120,
-        standardHeaders: true,
-        legacyHeaders: false,
-    });
-    app.use(limiter);
-
-    // Routes
-    app.get('/', (_req: Request, res: Response) => {
-        res.send('Video Processing Server');
-    });
-
-    app.post('/processing-video', validator(videoSchema), async (req: Request, res: Response, next: NextFunction) => {
-        try {
-            const { urls, text, voiceId, isHasScript, VideoStart, VideoEnd, subtitles, voiceOver, aspectRatio } = req.body;
-            const sessionId = uuidv4();
-
-            const job: VideoJob = {
-                id: sessionId,
-                data: {
-                    sessionId,
-                    urls,
-                    text,
-                    voiceId,
-                    isHasScript,
-                    VideoStart,
-                    VideoEnd,
-                    subtitles,
-                    voiceOver,
-                    aspectRatio
-                },
-                status: 'queued',
-                progress: 0
-            };
-
-            await channel.sendToQueue(QUEUE_NAME, Buffer.from(JSON.stringify(job)), { persistent: true });
-
-            res.json({ message: 'Video processing job added to queue', videoId: sessionId });
-        } catch (error) {
-            next(error);
-        }
-    });
-
-    app.get('/processing-video-status/:jobId', async (req: Request, res: Response, next: NextFunction) => {
-        try {
-            const { jobId } = req.params;
-            const jobStatus = await getJobStatus(jobId);
-
-            if (!jobStatus) {
-                return res.status(404).json({ message: 'Job not found' });
-            }
-
-            res.json(jobStatus);
-        } catch (error) {
-            next(error);
-        }
-    });
-
-    app.get('/queue-status', async (_req: Request, res: Response, next: NextFunction) => {
-        try {
-            const messageCount = await getQueueMessageCount(channel);
-            res.json({ queuedJobs: messageCount });
-        } catch (error) {
-            next(error);
-        }
-    });
-
-    app.use(errorHandler);
-    app.use(methodNotAllowedHandler);
-    app.all("*", notFoundHandler);
-
-    async function startServer() {
-        try {
-            channel = await connectRabbitMQ();
-            await channel.prefetch(numCPUs);
-
-            app.listen(Number(PORT), "0.0.0.0", () => {
-                console.log(`Worker ${process.pid} running at http://0.0.0.0:${PORT}`);
-            });
-
-            process.on('message', (msg) => {
-                if (msg === 'shutdown') {
-                    console.log(`Worker ${process.pid} shutting down`);
-                    channel.close();
-                    process.exit(0);
-                }
-            });
-        } catch (error) {
-            console.error('Failed to start server:', error);
-            process.exit(1);
-        }
+        res.json(jobStatus);
+    } catch (error) {
+        next(error);
     }
+});
 
-    startServer();
+app.get('/queue-status', async (_req: Request, res: Response, next: NextFunction) => {
+    try {
+        const messageCount = await getQueueMessageCount(channel);
+        res.json({ queuedJobs: messageCount });
+    } catch (error) {
+        next(error);
+    }
+});
+
+app.use(errorHandler);
+app.use(methodNotAllowedHandler);
+app.all("*", notFoundHandler);
+
+async function startServer() {
+    try {
+        channel = await connectRabbitMQ();
+        await channel.prefetch(1);
+
+        app.listen(Number(PORT), "0.0.0.0", () => {
+            console.log(`Server running at http://0.0.0.0:${PORT}`);
+        });
+
+        process.on('SIGTERM', async () => {
+            console.log('SIGTERM signal received: closing HTTP server');
+            await channel.close();
+            process.exit(0);
+        });
+    } catch (error) {
+        console.error('Failed to start server:', error);
+        process.exit(1);
+    }
 }
+
+startServer();

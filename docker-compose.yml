@@ -1,0 +1,22 @@
+version: '3.8'
+
+services:
+  server:
+    build: .
+    ports:
+      - "3006:3006"
+    environment:
+      - NODE_ENV=production
+    command: node dist/server.js
+    restart: unless-stopped
+
+  consumer:
+    build: .
+    environment:
+      - NODE_ENV=production
+    command: node dist/consumer.js
+    restart: unless-stopped
+
+networks:
+  default:
+    driver: bridge

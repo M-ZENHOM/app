@@ -1,4 +1,4 @@
-import { parentPort, workerData } from 'worker_threads';
+import { parentPort } from 'worker_threads';
 import { VideoJob } from './lib/rabbitMQUtils';
 import { processVideoJob } from './processVideoJob';
 

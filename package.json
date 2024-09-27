@@ -2,7 +2,7 @@
   "scripts": {
     "start": "nodemon src/server.ts",
     "consumer": "nodemon src/consumer.ts",
-    "build": "npx tsc"
+    "build": "tsc"
   },
   "dependencies": {
     "@ffmpeg-installer/ffmpeg": "^1.1.0",
