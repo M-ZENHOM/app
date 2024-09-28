@@ -20,16 +20,21 @@ export async function merge(urls: string[], tempDir: string, aspectRatio: string
         const outputPath = path.join(tempDir, 'merged_output.mp4');
         const scale = aspectRatio === "16:9" ? "scale=1920:1080" : "scale=1080:1920";
 
+        // Create a temporary file to store the list of input files
+        const listFilePath = path.join(tempDir, 'input_list.txt');
+        const fileList = inputFiles.map(file => `file '${file}'`).join('\n');
+        await fs.promises.writeFile(listFilePath, fileList);
+
         return new Promise((resolve, reject) => {
             const command = ffmpeg();
 
-            // Use concat demuxer instead of concat filter
-            command.input(`concat:${inputFiles.join('|')}`)
+            command.input(listFilePath)
+                .inputOptions(['-f', 'concat', '-safe', '0'])
                 .outputOptions([
                     '-c:v libx264',
-                    '-preset ultrafast', // Use ultrafast preset for faster encoding
-                    '-crf 23', // Balance between quality and file size
-                    '-vf', `${scale}`,
+                    '-preset ultrafast',
+                    '-crf 23',
+                    '-vf', `${scale},format=yuv420p`,
                 ])
                 .output(outputPath)
                 .on('start', (commandLine) => {
@@ -39,13 +44,13 @@ export async function merge(urls: string[], tempDir: string, aspectRatio: string
                     console.error('FFmpeg error:', err.message);
                     console.error('FFmpeg stdout:', stdout);
                     console.error('FFmpeg stderr:', stderr);
-                    cleanupTempFiles(inputFiles);
+                    cleanupTempFiles([...inputFiles, listFilePath]);
                     reject(err);
                 })
                 .on('end', () => {
                     console.log('FFmpeg processing finished');
                     resolve(outputPath);
-                    cleanupTempFiles(inputFiles);
+                    cleanupTempFiles([...inputFiles, listFilePath]);
                 })
                 .run();
         });
