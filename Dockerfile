@@ -16,9 +16,12 @@ FROM node:18-alpine
 
 WORKDIR /app
 
+# Install necessary packages
+RUN apk add --no-cache ffmpeg supervisor fontconfig ttf-dejavu
+
 # Copy package.json and package-lock.json (if available)
 COPY package*.json ./
-RUN npm ci
+RUN npm ci --only=production
 
 # Copy built files from the builder stage
 COPY --from=builder /app/dist ./dist
@@ -26,14 +29,11 @@ COPY --from=builder /app/dist ./dist
 # Copy the rest of the application files
 COPY . .
 
-# Set environment variables for development
+# Set environment variables for production
 ENV NODE_ENV=production
 
 # Expose the port the server runs on
 EXPOSE 3006
-
-# Install supervisor
-RUN apk add --no-cache supervisor
 
 # Copy supervisor configuration
 COPY supervisord.conf /etc/supervisord.conf

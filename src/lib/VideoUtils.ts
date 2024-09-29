@@ -198,7 +198,9 @@ export function addSubtitles(videoPath: string, subtitlePath: string, outputPath
     return new Promise((resolve, reject) => {
         // Escape the subtitle path
         const escapedSubtitlePath = subtitlePath.replace(/\\/g, '/').replace(/:/g, '\\:');
-        const subtitleStyle = "FontName=Arial,FontSize=20,PrimaryColour=&HFFFFFF,OutlineColour=&H000000,BackColour=&H80000000,Bold=1,Alignment=2";
+        const subtitleStyle = "FontName=DejaVu Sans,FontSize=20,PrimaryColour=&HFFFFFF,OutlineColour=&H000000,BackColour=&H80000000,Bold=1,Alignment=2";
+
+        console.log(`Adding subtitles: video=${videoPath}, subtitles=${subtitlePath}, output=${outputPath}`);
 
         ffmpeg(videoPath)
             .videoCodec('libx264')
@@ -210,6 +212,9 @@ export function addSubtitles(videoPath: string, subtitlePath: string, outputPath
                 console.log('FFmpeg command:', commandLine);
                 console.log('Adding subtitles to video...');
             })
+            .on('stderr', (stderrLine) => {
+                console.log('FFmpeg stderr:', stderrLine);
+            })
             .on('error', (err, stdout, stderr) => {
                 console.error('FFmpeg error:', err.message);
                 console.error('FFmpeg stdout:', stdout);
@@ -217,7 +222,10 @@ export function addSubtitles(videoPath: string, subtitlePath: string, outputPath
                 console.error('Failed to add subtitles to video');
                 reject(err);
             })
-            .on('end', () => resolve())
+            .on('end', () => {
+                console.log('Subtitles added successfully');
+                resolve();
+            })
             .save(outputPath);
     });
 }
