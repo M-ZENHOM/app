@@ -208,11 +208,13 @@ export function addSubtitles(videoPath: string, subtitlePath: string, outputPath
             ])
             .on('start', (commandLine) => {
                 console.log('FFmpeg command:', commandLine);
+                console.log('Adding subtitles to video...');
             })
             .on('error', (err, stdout, stderr) => {
                 console.error('FFmpeg error:', err.message);
                 console.error('FFmpeg stdout:', stdout);
                 console.error('FFmpeg stderr:', stderr);
+                console.error('Failed to add subtitles to video');
                 reject(err);
             })
             .on('end', () => resolve())

@@ -36,14 +36,17 @@ export async function processVideoJob(job: VideoJob) {
                 await addAudioToVideo(mergedVideoPath, audioPath, videoWithAudioPath);
                 tempFiles.push(videoWithAudioPath);
                 finalVideoPath = videoWithAudioPath;
+                console.log(`Video with audio path: ${finalVideoPath}`);
             }
 
             if (subtitles) {
                 await updateJobStatus(job.id, 'processing', 70);
                 const videoWithSubtitlesPath = path.join(tempDir, 'final-video.mp4');
+                console.log(`Adding subtitles to video: ${finalVideoPath}, Subtitles: ${subtitlePath}`);
                 await addSubtitles(finalVideoPath, subtitlePath, videoWithSubtitlesPath);
                 tempFiles.push(videoWithSubtitlesPath);
                 finalVideoPath = videoWithSubtitlesPath;
+                console.log(`Final video with subtitles path: ${finalVideoPath}`);
             }
         }
 
