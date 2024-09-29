@@ -47,6 +47,9 @@ async function startConsumer() {
 
 async function processJob(job: VideoJob, channel: Channel, msg: ConsumeMessage) {
     try {
+        // Update job status to 'processing' before starting
+        await updateJobStatus(job.id, 'processing', 0);
+        
         const result = await processVideoJob(job);
         await updateJobStatus(job.id, 'completed', 100, result);
         channel.ack(msg);

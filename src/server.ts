@@ -8,7 +8,7 @@ import { videoSchema } from './schemas/video';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import { Channel } from 'amqplib';
-import { connectRabbitMQ, VideoJob, getJobStatus, getQueueMessageCount } from './lib/rabbitMQUtils';
+import { connectRabbitMQ, VideoJob, getJobStatus, getQueueMessageCount, updateJobStatus } from './lib/rabbitMQUtils';
 import { validator } from './lib/utils';
 
 const PORT = process.env.PORT || 3006;
@@ -59,6 +59,9 @@ app.post('/processing-video', validator(videoSchema), async (req: Request, res: 
             status: 'queued',
             progress: 0
         };
+
+        // Create the job in the database before sending to RabbitMQ
+        await updateJobStatus(job.id, 'queued', 0);
 
         await channel.sendToQueue(QUEUE_NAME, Buffer.from(JSON.stringify(job)), { persistent: true });
 
