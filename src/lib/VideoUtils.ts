@@ -205,8 +205,14 @@ export function addSubtitles(videoPath: string, subtitlePath: string, outputPath
         ffmpeg(videoPath)
             .videoCodec('libx264')
             .audioCodec('aac')
-            .outputOptions([
-                `-vf subtitles='${escapedSubtitlePath}':force_style='${subtitleStyle}'`,
+            .videoFilters([
+                {
+                    filter: 'subtitles',
+                    options: {
+                        filename: escapedSubtitlePath,
+                        force_style: subtitleStyle
+                    }
+                }
             ])
             .on('start', (commandLine) => {
                 console.log('FFmpeg command:', commandLine);
@@ -229,7 +235,6 @@ export function addSubtitles(videoPath: string, subtitlePath: string, outputPath
             .save(outputPath);
     });
 }
-
 export function addAudioToVideo(videoPath: string, audioPath: string, outputPath: string): Promise<void> {
     return new Promise((resolve, reject) => {
         ffmpeg(videoPath)
