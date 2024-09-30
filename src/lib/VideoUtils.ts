@@ -18,23 +18,44 @@ export async function merge(urls: string[], tempDir: string, aspectRatio: string
         console.log('Downloaded input files:', inputFiles);
 
         const outputPath = path.join(tempDir, 'merged_output.mp4');
-        const scale = aspectRatio === "16:9" ? "scale=1920:1080" : "scale=1080:1920";
+        // const scale = aspectRatio === "16:9" ? "scale=1920:1080" : "scale=1080:1920";
+        const crop = "crop='min(iw,ih)*9/16:min(iw,ih):iw/2:ih/2'";
 
-        // Create a temporary file to store the list of input files
-        const listFilePath = path.join(tempDir, 'input_list.txt');
-        const fileList = inputFiles.map(file => `file '${file}'`).join('\n');
-        await fs.promises.writeFile(listFilePath, fileList);
+        // Create a complex filter for crossfade
+        const crossfadeDuration = 1; // Duration of crossfade in seconds
+        let filterComplex = '';
+
+        inputFiles.forEach((_, index) => {
+            if (aspectRatio === "9:16") {
+                filterComplex += `[${index}:v]${crop},format=yuv420p[v${index}];`;
+            } else {
+                filterComplex += `[${index}:v]format=yuv420p[v${index}];`;
+            }
+        });
+
+        for (let i = 1; i < inputFiles.length; i++) {
+            const prevIndex = i - 1;
+            if (i === 1) {
+                filterComplex += `[v0][v1]xfade=transition=fade:duration=${crossfadeDuration}:offset=${i * 10}[v${i}out];`;
+            } else {
+                filterComplex += `[v${prevIndex}out][v${i}]xfade=transition=fade:duration=${crossfadeDuration}:offset=${i * 10}[v${i}out];`;
+            }
+        }
 
         return new Promise((resolve, reject) => {
             const command = ffmpeg();
 
-            command.input(listFilePath)
-                .inputOptions(['-f', 'concat', '-safe', '0'])
+            inputFiles.forEach(file => {
+                command.input(file);
+            });
+
+            command
                 .outputOptions([
-                    '-c:v libx264',
-                    '-preset ultrafast',
-                    '-crf 23',
-                    '-vf', `${scale},format=yuv420p`,
+                    '-filter_complex', filterComplex,
+                    '-map', `[v${inputFiles.length - 1}out]`,
+                    '-c:v', 'libx264',
+                    '-preset', 'ultrafast',
+                    '-crf', '23'
                 ])
                 .output(outputPath)
                 .on('start', (commandLine) => {
@@ -44,13 +65,13 @@ export async function merge(urls: string[], tempDir: string, aspectRatio: string
                     console.error('FFmpeg error:', err.message);
                     console.error('FFmpeg stdout:', stdout);
                     console.error('FFmpeg stderr:', stderr);
-                    cleanupTempFiles([...inputFiles, listFilePath]);
+                    cleanupTempFiles(inputFiles);
                     reject(err);
                 })
                 .on('end', () => {
                     console.log('FFmpeg processing finished');
                     resolve(outputPath);
-                    cleanupTempFiles([...inputFiles, listFilePath]);
+                    cleanupTempFiles(inputFiles);
                 })
                 .run();
         });
@@ -69,7 +90,7 @@ export async function generateStory(text: string, VideoStartText: string, VideoE
             "Content-Type": "text/plain",
         };
 
-        const prompt = `generate a short story like 200 characters from ${text} and let the story start with ${VideoStartText} and end with ${VideoEndText} and it should be in one part`;
+        const prompt = `Generate a compelling short story (around 410 characters and the video is 55 sec i want to make sure the story cover all video) from ${text}, ensuring it begins with ${VideoStartText} and ends with ${VideoEndText}. The story should have a natural progression, clear emotion, and be seamless from start to finish, all within one concise part.`;
 
         const response = await axios({
             method: 'post',
@@ -177,7 +198,9 @@ async function generateSubtitles(text: string, alignment: AlignmentType, outputP
 
         // Collect characters until a space or the end of the text
         if (currentChar === ' ' || index === characters.length - 1) {
-            const word = text.substring(wordStartIndex, index + 1).trim();
+            let word = text.substring(wordStartIndex, index + 1).trim();
+            // Remove any . or , from the words
+            word = word.replace(/[.,]/g, '');
             if (word.length > 0) {
                 // Generate subtitle for the collected word
                 subtitleContent += `${Math.floor(index / 3) + 1}\n`;
@@ -198,7 +221,7 @@ export function addSubtitles(videoPath: string, subtitlePath: string, outputPath
     return new Promise((resolve, reject) => {
         // Escape the subtitle path
         const escapedSubtitlePath = subtitlePath.replace(/\\/g, '/').replace(/:/g, '\\:');
-        const subtitleStyle = "FontSize=20,PrimaryColour=&HFFFFFF,OutlineColour=&H000000,BackColour=&H80000000,Bold=1,Alignment=2";
+        const subtitleStyle = "FontSize=20,PrimaryColour=&HFFFFFF,OutlineColour=&H40000000,BorderStyle=3,,Alignment=2";
 
         ffmpeg(videoPath)
             .videoCodec('libx264')
