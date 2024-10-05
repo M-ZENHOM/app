@@ -81,7 +81,7 @@ export async function merge(urls: string[], tempDir: string, aspectRatio: string
     }
 }
 
-export async function generateStory(text: string, VideoStartText: string, VideoEndText: string): Promise<string> {
+export async function generateStory(text: string, VideoStartText?: string, VideoEndText?: string): Promise<string> {
     try {
         const modelId = process.env.GENERATE_STORY_MODAL_ID;
         const url = `${process.env.GENERATE_STORY_URL}${modelId}`;
@@ -89,8 +89,8 @@ export async function generateStory(text: string, VideoStartText: string, VideoE
             Authorization: `Bearer ${process.env.GENERATE_STORY_API_KEY}`,
             "Content-Type": "text/plain",
         };
-
-        const prompt = `Generate a compelling short story (around 410 characters and the video is 55 sec i want to make sure the story cover all video) from ${text}, ensuring it begins with ${VideoStartText} and ends with ${VideoEndText}. The story should have a natural progression, clear emotion, and be seamless from start to finish, all within one concise part.`;
+        const numOfWord = 120
+        const prompt = `Generate ${numOfWord} word of a compelling short story (exactly ${numOfWord} word, not more, not less) from '${text}', ensuring it begins with '${VideoStartText}' and ends with '${VideoEndText}'. The story should have a natural progression, clear emotion, and be seamless from start to finish, all within one concise part make sure exactly ${numOfWord} word, not more, not less and ensure that the start of the video with '${VideoStartText}' not anything before the '${VideoStartText}'.'`;
 
         const response = await axios({
             method: 'post',
@@ -199,8 +199,8 @@ async function generateSubtitles(text: string, alignment: AlignmentType, outputP
         // Collect characters until a space or the end of the text
         if (currentChar === ' ' || index === characters.length - 1) {
             let word = text.substring(wordStartIndex, index + 1).trim();
-            // Remove any . or , from the words
-            word = word.replace(/[.,]/g, '');
+            // Remove any . or , or : from the words
+            word = word.replace(/[.,:"]/g, '');
             if (word.length > 0) {
                 // Generate subtitle for the collected word
                 subtitleContent += `${Math.floor(index / 3) + 1}\n`;
