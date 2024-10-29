@@ -22,47 +22,40 @@ export async function processImageJob(job: ImageJob) {
     try {
         await updateJobStatus(job.id, 'processing', 10);
 
-        // Download images and audio concurrently
+        // Download images and audio and generate subtitles concurrently
+        const subtitlePath = path.join(tempDir, 'subtitles.ass');
         const downloadStartTime = Date.now();
         const [downloadedImages, audioPath] = await Promise.all([
             downloadImages(imagesList, tempDir),
-            downloadAudio(audioFileUrl, tempDir)
+            downloadAudio(audioFileUrl, tempDir),
+            generateAssFile(subtitles, subtitlePath)
         ]);
+
         timings['downloads'] = Date.now() - downloadStartTime;
-        tempFiles.push(...downloadedImages, audioPath);
 
         await updateJobStatus(job.id, 'processing', 30);
-
-        // Generate subtitle file
-        const subtitlePath = path.join(tempDir, 'subtitles.ass');
-        await generateAssFile(subtitles, subtitlePath);
-        tempFiles.push(subtitlePath);
-
-        await updateJobStatus(job.id, 'processing', 50);
 
         // Create video from images with correct duration
         const videoStartTime = Date.now();
         const intermediateVideoPath = path.join(tempDir, 'intermediate.mp4');
         await createVideoFromImages(downloadedImages as unknown as ImageData[], intermediateVideoPath, subtitles);
         timings['videoCreation'] = Date.now() - videoStartTime;
-        tempFiles.push(intermediateVideoPath);
 
-        await updateJobStatus(job.id, 'processing', 70);
+        await updateJobStatus(job.id, 'processing', 50);
 
         // Add audio and subtitles
         const finalProcessingStartTime = Date.now();
         const finalVideoPath = path.join(tempDir, 'final.mp4');
         await addAudioAndSubtitles(intermediateVideoPath, audioPath, subtitlePath, finalVideoPath);
         timings['finalProcessing'] = Date.now() - finalProcessingStartTime;
-        tempFiles.push(finalVideoPath);
 
-        await updateJobStatus(job.id, 'processing', 90);
+        await updateJobStatus(job.id, 'processing', 70);
 
         // Upload to Supabase
         const uploadStartTime = Date.now();
         const fileBuffer = await fs.readFile(finalVideoPath);
         const uniqueFileName = `${Date.now()}-${sessionId}-final-video.mp4`;
-
+        await updateJobStatus(job.id, 'processing', 90);
         const { data, error } = await supabase
             .storage
             .from('videos')
@@ -102,11 +95,18 @@ async function downloadImages(imagesList: ImageJob['data']['imagesList'], tempDi
         return imagePath;
     }));
 }
+
 async function downloadAudio(audioUrl: string, tempDir: string): Promise<string> {
-    const response = await axios.get(audioUrl, { responseType: 'arraybuffer' });
     const audioPath = path.join(tempDir, 'audio.mp3');
-    await fs.writeFile(audioPath, response.data);
-    return audioPath;
+    try {
+        const response = await axios.get(audioUrl, { responseType: 'arraybuffer' });
+        await fs.writeFile(audioPath, response.data);
+        return audioPath;
+
+    } catch (error) {
+        console.error('Error downloading audio:', error);
+        throw error;
+    }
 }
 function createVideoFromImages(imagePaths: string[] | ImageData[], outputPath: string, transcript: ImageJob['data']['subtitles']): Promise<void> {
     return new Promise((resolve, reject) => {
@@ -190,19 +190,18 @@ function createVideoFromImages(imagePaths: string[] | ImageData[], outputPath: s
 
             const filterComplex = filterComplexParts.join(';');
             const finalOutput = normalizedPaths.length === 1 ? '[scaled0]' : '[output]';
-
+            // '-movflags', '+faststart',
+            // '-b:v', '2.5M',
+            // '-maxrate', '2.5M',
+            // '-bufsize', '5M',
+            // '-profile:v', 'main',
+            // '-level', '4.0'
             command
                 .complexFilter(filterComplex, [finalOutput])
                 .outputOptions([
                     '-c:v', 'libx264',
-                    '-preset', 'ultrafast',
+                    '-preset', 'medium',
                     '-pix_fmt', 'yuv420p',
-                    '-movflags', '+faststart',
-                    '-b:v', '2.5M',
-                    '-maxrate', '2.5M',
-                    '-bufsize', '5M',
-                    '-profile:v', 'main',
-                    '-level', '4.0'
                 ])
                 .on('start', cmd => {
                     console.log('FFmpeg command:', cmd);
@@ -232,7 +231,9 @@ function formatText(text: string): string {
     const words = text.split(/\s+/);
 
     return words.map((word, index) => {
-        const upperWord = word.toUpperCase();
+        // Remove periods and commas from the word
+        const cleanWord = word.replace(/[.,]/g, '');
+        const upperWord = cleanWord.toUpperCase();
         // Create bounce animation for each word
         const delay = index * 0.3; // Stagger the animations
         const animTags = `{\\t(${delay * 1000},${delay * 1000 + 500},\\fscx120\\fscy120)\\t(${delay * 1000 + 300},${delay * 1000 + 600},\\fscx100\\fscy100)}`;
