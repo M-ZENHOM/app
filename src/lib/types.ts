@@ -43,11 +43,7 @@ export interface ImageJob {
     id: string;
     data: {
         sessionId: string;
-        imagesList: Array<{
-            path: string;
-            id: string;
-            fullPath: string;
-        }>;
+        imagesList: string[];
         audioFileUrl: string;
         subtitles: Array<{
             text: string;

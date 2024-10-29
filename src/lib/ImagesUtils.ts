@@ -86,8 +86,7 @@ export async function processImageJob(job: ImageJob) {
 }
 async function downloadImages(imagesList: ImageJob['data']['imagesList'], tempDir: string): Promise<string[]> {
     return Promise.all(imagesList.map(async (image, index) => {
-        const response = await axios.get(
-            `https://hyzgqhhzdudntmbczpun.supabase.co/storage/v1/object/public/ai-images/${image.path}`,
+        const response = await axios.get(`${image}`,
             { responseType: 'arraybuffer' }
         );
         const imagePath = path.join(tempDir, `image_${index}.png`);
@@ -95,7 +94,6 @@ async function downloadImages(imagesList: ImageJob['data']['imagesList'], tempDi
         return imagePath;
     }));
 }
-
 async function downloadAudio(audioUrl: string, tempDir: string): Promise<string> {
     const audioPath = path.join(tempDir, 'audio.mp3');
     try {
