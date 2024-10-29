@@ -1,7 +1,8 @@
 import { Channel, ConsumeMessage } from 'amqplib';
 import { Worker } from 'worker_threads';
-import { connectRabbitMQ, updateJobStatus, VideoJob } from './lib/rabbitMQUtils';
-import { processVideoJob } from './processVideoJob';
+import { connectRabbitMQ, updateJobStatus } from './lib/rabbitMQUtils';
+import { processImageJob } from './lib/ImagesUtils';
+import { ImageJob } from './lib/types';
 
 const QUEUE_NAME = 'video-processing';
 
@@ -21,9 +22,9 @@ async function startConsumer() {
 
         await channel.consume(QUEUE_NAME, async (msg: ConsumeMessage | null) => {
             if (msg !== null) {
-                const job: VideoJob = JSON.parse(msg.content.toString());
+                const job: ImageJob = JSON.parse(msg.content.toString());
                 try {
-                    await processJob(job, channel, msg);
+                    await collectJob(job, channel, msg);
                 } catch (error) {
                     console.error('Error processing job:', error);
                     channel.nack(msg, false, false);
@@ -45,12 +46,30 @@ async function startConsumer() {
     }
 }
 
-async function processJob(job: VideoJob, channel: Channel, msg: ConsumeMessage) {
+// Video one
+// async function processJob(job: VideoJob, channel: Channel, msg: ConsumeMessage) {
+//     try {
+//         // Update job status to 'processing' before starting
+//         await updateJobStatus(job.id, 'processing', 0);
+
+//         const result = await processVideoJob(job);
+//         await updateJobStatus(job.id, 'completed', 100, result);
+//         channel.ack(msg);
+//     } catch (error) {
+//         console.error(`Job ${job.id} failed:`, error);
+//         await updateJobStatus(job.id, 'failed', 0);
+//         channel.nack(msg, false, false);
+//     }
+// }
+
+
+// Images one
+async function collectJob(job: ImageJob, channel: Channel, msg: ConsumeMessage) {
     try {
         // Update job status to 'processing' before starting
         await updateJobStatus(job.id, 'processing', 0);
-        
-        const result = await processVideoJob(job);
+
+        const result = await processImageJob(job);
         await updateJobStatus(job.id, 'completed', 100, result);
         channel.ack(msg);
     } catch (error) {

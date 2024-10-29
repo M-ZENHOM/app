@@ -19,6 +19,32 @@ export interface VideoJob {
     status: 'queued' | 'processing' | 'completed' | 'failed';
     progress: number;
     result?: any;
+    startTime?: number;
+}
+
+export interface NewVideoJob {
+    id: string;
+    data: {
+        sessionId: string;
+        audioFileUrl: string;
+        subtitles: {
+            transcript: {
+                text: string,
+                start: number,
+                end: number,
+                confidence: number,
+            }[]
+        },
+        imagesList: {
+            path: string,
+            id: string,
+            fullPath: string
+        }[],
+    }
+    status: 'queued' | 'processing' | 'completed' | 'failed';
+    progress: number;
+    result?: any;
+    startTime?: number;
 }
 
 const QUEUE_NAME = 'video-processing';
