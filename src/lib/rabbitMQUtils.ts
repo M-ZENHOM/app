@@ -9,12 +9,21 @@ const MAX_CONCURRENT_JOBS = Math.max(2, cpus().length - 1);
 // Add job status cache
 const jobStatusCache = new Map<string, any>();
 
+async function deleteQueueIfExists(channel: Channel) {
+    try {
+        await channel.deleteQueue(QUEUE_NAME);
+        console.log(`Deleted queue ${QUEUE_NAME} if it existed.`);
+    } catch (error) {
+        console.log(`Queue ${QUEUE_NAME} did not exist or could not be deleted.`);
+    }
+}
+
 export async function connectRabbitMQ(): Promise<Channel> {
     const connect = async () => {
         try {
             const connection: Connection = await amqp.connect(process.env.RABBITMQ_URL || 'amqp://localhost');
             const channel: Channel = await connection.createChannel();
-
+            await deleteQueueIfExists(channel);
             await channel.assertQueue(QUEUE_NAME, {
                 durable: true,
                 arguments: {
