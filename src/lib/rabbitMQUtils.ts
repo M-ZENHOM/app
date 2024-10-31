@@ -1,67 +1,35 @@
 import amqp, { Channel, Connection } from 'amqplib';
-import { supabase } from '../db';
 import { backOff } from "exponential-backoff";
-
-export interface VideoJob {
-    id: string;
-    data: {
-        sessionId: string;
-        urls: string[];
-        text: string;
-        voiceId: string;
-        isHasScript: boolean;
-        VideoStart: string;
-        VideoEnd: string;
-        subtitles: boolean;
-        voiceOver: boolean;
-        aspectRatio: string;
-    };
-    status: 'queued' | 'processing' | 'completed' | 'failed';
-    progress: number;
-    result?: any;
-    startTime?: number;
-}
-
-export interface NewVideoJob {
-    id: string;
-    data: {
-        sessionId: string;
-        audioFileUrl: string;
-        subtitles: {
-            transcript: {
-                text: string,
-                start: number,
-                end: number,
-                confidence: number,
-            }[]
-        },
-        imagesList: {
-            path: string,
-            id: string,
-            fullPath: string
-        }[],
-    }
-    status: 'queued' | 'processing' | 'completed' | 'failed';
-    progress: number;
-    result?: any;
-    startTime?: number;
-}
+import { cpus } from 'os';
+import { supabase } from '../db';
 
 const QUEUE_NAME = 'video-processing';
+const MAX_CONCURRENT_JOBS = Math.max(2, cpus().length - 1);
+
+// Add job status cache
+const jobStatusCache = new Map<string, any>();
 
 export async function connectRabbitMQ(): Promise<Channel> {
     const connect = async () => {
-        const connection: Connection = await amqp.connect(process.env.RABBITMQ_URL || 'amqp://localhost');
-        const channel: Channel = await connection.createChannel();
-        await channel.assertQueue(QUEUE_NAME, { durable: true });
-        console.log('Connected to RabbitMQ');
+        try {
+            const connection: Connection = await amqp.connect(process.env.RABBITMQ_URL || 'amqp://localhost');
+            const channel: Channel = await connection.createChannel();
 
-        connection.on('error', (err) => {
-            console.error('RabbitMQ connection error:', err);
-            throw err;
-        });
+            await channel.assertQueue(QUEUE_NAME, {
+                durable: true,
+                arguments: {
+                    'x-max-priority': 10
+                }
+            });
 
-        return channel;
+            await channel.prefetch(1, false);
+
+            console.log(`Connected to RabbitMQ with ${MAX_CONCURRENT_JOBS} concurrent processors`);
+            return channel;
+        } catch (error) {
+            console.error('Failed to connect to RabbitMQ:', error);
+            throw error;
+        }
     };
 
     return backOff(connect, {
@@ -71,31 +39,85 @@ export async function connectRabbitMQ(): Promise<Channel> {
     });
 }
 
-export async function updateJobStatus(jobId: string, status: VideoJob['status'], progress: number, result: any = null) {
-    const { error } = await supabase
-        .from('video_status')
-        .upsert({ video_id: jobId, status, progress, result })
+export async function updateJobStatus(
+    jobId: string,
+    status: 'queued' | 'processing' | 'completed' | 'failed',
+    progress: number,
+    result: any = null
+) {
+    try {
+        const jobStatus = {
+            job_id: jobId,
+            status,
+            progress,
+            result,
+            updated_at: new Date().toISOString()
+        };
 
-    if (error) {
-        console.error('Error updating video status:', error);
+        // Update both cache and database
+        jobStatusCache.set(jobId, jobStatus);
+
+        const { error } = await supabase
+            .from('video_status')
+            .upsert({
+                video_id: jobId,
+                status,
+                progress,
+                result,
+                updated_at: new Date().toISOString()
+            });
+
+        if (error) {
+            console.error('Error updating job status in database:', error);
+        }
+
+        return jobStatus;
+    } catch (error) {
+        console.error('Error updating job status:', error);
         throw error;
     }
 }
 
-export async function getJobStatus(jobId: string): Promise<VideoJob | null> {
-    const { data, error } = await supabase
-        .from('video_status')
-        .select('*')
-        .eq('video_id', jobId)
-        .single()
+export async function getJobStatus(jobId: string): Promise<any> {
+    try {
+        // Check cache first
+        if (jobStatusCache.has(jobId)) {
+            return jobStatusCache.get(jobId);
+        }
 
-    if (error) {
-        console.error('Error fetching video status:', error);
+        // If not in cache, check database
+        const { data, error } = await supabase
+            .from('video_status')
+            .select('*')
+            .eq('video_id', jobId)
+            .single();
+
+        if (error) {
+            console.error('Error fetching job status:', error);
+            return null;
+        }
+
+        if (data) {
+            // Update cache
+            jobStatusCache.set(jobId, data);
+            return data;
+        }
+
+        return null;
+    } catch (error) {
+        console.error('Error getting job status:', error);
         return null;
     }
-
-    return data as VideoJob | null;
 }
+
+// Add cache cleanup for completed/failed jobs
+setInterval(() => {
+    for (const [jobId, status] of jobStatusCache.entries()) {
+        if (status.status === 'completed' || status.status === 'failed') {
+            jobStatusCache.delete(jobId);
+        }
+    }
+}, 1800000); // Clean up every 30 minutes
 
 export async function purgeQueue(channel: Channel) {
     await channel.purgeQueue(QUEUE_NAME);

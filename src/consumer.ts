@@ -1,42 +1,29 @@
 import { Channel, ConsumeMessage } from 'amqplib';
-import { Worker } from 'worker_threads';
+import { cpus } from 'os';
 import { connectRabbitMQ, updateJobStatus } from './lib/rabbitMQUtils';
 import { processImageJob } from './lib/ImagesUtils';
+import { processVideoJob } from './processVideoJob';
 import { ImageJob } from './lib/types';
 
 const QUEUE_NAME = 'video-processing';
-
-class CustomWorker extends Worker {
-    isProcessing: boolean = false;
-}
+const MAX_CONCURRENT_JOBS = Math.max(2, cpus().length - 1);
+const activeJobs = new Set();
 
 async function startConsumer() {
-    let channel: Channel;
-
     try {
         console.log('Attempting to connect to RabbitMQ...');
-        channel = await connectRabbitMQ();
+        const channel = await connectRabbitMQ();
         console.log('Successfully connected to RabbitMQ');
 
-        await channel.prefetch(1);
+        // Create multiple consumers
+        for (let i = 0; i < MAX_CONCURRENT_JOBS; i++) {
+            createConsumer(channel, i);
+        }
 
-        await channel.consume(QUEUE_NAME, async (msg: ConsumeMessage | null) => {
-            if (msg !== null) {
-                const job: ImageJob = JSON.parse(msg.content.toString());
-                try {
-                    await collectJob(job, channel, msg);
-                } catch (error) {
-                    console.error('Error processing job:', error);
-                    channel.nack(msg, false, false);
-                    await updateJobStatus(job.id, 'failed', 0);
-                }
-            }
-        });
-
-        console.log('Consumer started and waiting for messages');
+        console.log(`Started ${MAX_CONCURRENT_JOBS} consumers`);
 
         process.on('SIGTERM', async () => {
-            console.log('SIGTERM signal received: closing consumer');
+            console.log('SIGTERM signal received: closing consumers');
             await channel.close();
             process.exit(0);
         });
@@ -46,37 +33,44 @@ async function startConsumer() {
     }
 }
 
-// Video one
-// async function processJob(job: VideoJob, channel: Channel, msg: ConsumeMessage) {
-//     try {
-//         // Update job status to 'processing' before starting
-//         await updateJobStatus(job.id, 'processing', 0);
+function createConsumer(channel: Channel, workerId: number) {
+    channel.consume(QUEUE_NAME, async (msg: ConsumeMessage | null) => {
+        if (msg === null) return;
 
-//         const result = await processVideoJob(job);
-//         await updateJobStatus(job.id, 'completed', 100, result);
-//         channel.ack(msg);
-//     } catch (error) {
-//         console.error(`Job ${job.id} failed:`, error);
-//         await updateJobStatus(job.id, 'failed', 0);
-//         channel.nack(msg, false, false);
-//     }
-// }
+        const job = JSON.parse(msg.content.toString());
+        const jobId = job.id;
 
+        if (activeJobs.has(jobId)) {
+            channel.nack(msg, false, true);
+            return;
+        }
 
-// Images one
-async function collectJob(job: ImageJob, channel: Channel, msg: ConsumeMessage) {
-    try {
-        // Update job status to 'processing' before starting
-        await updateJobStatus(job.id, 'processing', 0);
+        try {
+            activeJobs.add(jobId);
+            console.log(`Worker ${workerId} processing job ${jobId}`);
 
-        const result = await processImageJob(job);
-        await updateJobStatus(job.id, 'completed', 100, result);
-        channel.ack(msg);
-    } catch (error) {
-        console.error(`Job ${job.id} failed:`, error);
-        await updateJobStatus(job.id, 'failed', 0);
-        channel.nack(msg, false, false);
-    }
+            // Determine job type and process accordingly
+            if (isImageJob(job)) {
+                await processImageJob(job);
+            } else {
+                await processVideoJob(job);
+            }
+
+            channel.ack(msg);
+            console.log(`Worker ${workerId} completed job ${jobId}`);
+        } catch (error) {
+            console.error(`Worker ${workerId} failed job ${jobId}:`, error);
+            await updateJobStatus(jobId, 'failed', 0);
+            channel.nack(msg, false, false);
+        } finally {
+            activeJobs.delete(jobId);
+        }
+    });
 }
 
-startConsumer();
+function isImageJob(job: any): job is ImageJob {
+    return job?.data?.imagesList !== undefined;
+}
+
+// Start the consumer
+startConsumer().catch(console.error);

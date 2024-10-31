@@ -4,11 +4,11 @@ import { supabase } from './db';
 import { generateStory, textToAudio, cleanupTempFiles, merge, addAudioToVideo, addSubtitles } from './lib/VideoUtils';
 import ffmpeg from 'fluent-ffmpeg';
 import axios from 'axios';
-import { VideoJob, updateJobStatus } from './lib/rabbitMQUtils';
+import { updateJobStatus } from './lib/rabbitMQUtils';
 import { ensureDirectoryExists } from './lib/utils';
 import { NewVideoJob, Subtitle } from './lib/types';
 
-export async function processVideoJob(job: VideoJob) {
+export async function processVideoJob(job: any) {
     const { sessionId, urls, text, voiceId, isHasScript, VideoStart, VideoEnd, subtitles, voiceOver, aspectRatio } = job.data;
     const tempDir = path.join(__dirname, 'temp', sessionId);
     await ensureDirectoryExists(tempDir);

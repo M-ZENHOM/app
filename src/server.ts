@@ -6,7 +6,7 @@ import express, { NextFunction, Request, Response } from 'express';
 import rateLimit from 'express-rate-limit';
 import helmet from 'helmet';
 import { v4 as uuidv4 } from 'uuid';
-import { connectRabbitMQ, getJobStatus, getQueueMessageCount, updateJobStatus, VideoJob } from './lib/rabbitMQUtils';
+import { connectRabbitMQ, getJobStatus, getQueueMessageCount, updateJobStatus } from './lib/rabbitMQUtils';
 import { ImageJob } from './lib/types';
 import { validator } from './lib/utils';
 import { errorHandler, methodNotAllowedHandler, notFoundHandler } from './middlewares/ErrorHandler';
@@ -44,7 +44,7 @@ app.post('/processing-video', validator(videoSchema), async (req: Request, res: 
         const sessionId = uuidv4();
         const startTime = Date.now();
 
-        const job: VideoJob = {
+        const job = {
             id: sessionId,
             data: {
                 sessionId,
@@ -65,7 +65,10 @@ app.post('/processing-video', validator(videoSchema), async (req: Request, res: 
 
         await updateJobStatus(job.id, 'queued', 0);
 
-        await channel.sendToQueue(QUEUE_NAME, Buffer.from(JSON.stringify(job)), { persistent: true });
+        await channel.sendToQueue(QUEUE_NAME, Buffer.from(JSON.stringify(job)), {
+            persistent: true,
+            priority: 5 // Default priority
+        });
 
         res.json({ message: 'Video processing job added to queue', videoId: sessionId });
     } catch (error) {
@@ -122,9 +125,17 @@ app.post('/processing-image', async (req: Request, res: Response, next: NextFunc
         };
 
         await updateJobStatus(job.id, 'queued', 0);
-        await channel.sendToQueue(QUEUE_NAME, Buffer.from(JSON.stringify(job)), { persistent: true });
 
-        res.json({ message: 'Image processing job added to queue', imageId: sessionId });
+        await channel.sendToQueue(QUEUE_NAME, Buffer.from(JSON.stringify(job)), {
+            persistent: true,
+            priority: 5
+        });
+
+        res.json({
+            message: 'Image processing job added to queue',
+            imageId: sessionId,
+            status: 'queued'
+        });
     } catch (error) {
         next(error);
     }
@@ -136,7 +147,9 @@ app.get('/processing-image-status/:jobId', async (req: Request, res: Response, n
         const jobStatus = await getJobStatus(jobId);
 
         if (!jobStatus) {
-            return res.status(404).json({ message: 'Job not found' });
+            return res.status(404).json({
+                message: 'Job not found'
+            });
         }
 
         res.json(jobStatus);
@@ -144,7 +157,6 @@ app.get('/processing-image-status/:jobId', async (req: Request, res: Response, n
         next(error);
     }
 });
-
 
 app.use(errorHandler);
 app.use(methodNotAllowedHandler);
