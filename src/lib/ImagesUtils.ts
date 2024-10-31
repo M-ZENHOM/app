@@ -10,6 +10,11 @@ import { ImageData, ImageJob, Subtitle } from './types';
 
 ffmpeg.setFfmpegPath(ffmpegStatic!);
 
+// Optimize FFmpeg settings
+const FFMPEG_PRESET = 'veryfast';
+const VIDEO_BITRATE = '2.5M';
+const BUFFER_SIZE = '5M';
+
 export async function processImageJob(job: ImageJob) {
     const { sessionId, imagesList, audioFileUrl, subtitles } = job.data;
     const tempDir = path.join(__dirname, '..', 'temp', sessionId);
@@ -55,7 +60,6 @@ export async function processImageJob(job: ImageJob) {
         const uploadStartTime = Date.now();
         const fileBuffer = await fs.readFile(finalVideoPath);
         const uniqueFileName = `${Date.now()}-${sessionId}-final-video.mp4`;
-        await updateJobStatus(job.id, 'processing', 90);
         const { data, error } = await supabase
             .storage
             .from('videos')
@@ -123,8 +127,8 @@ function createVideoFromImages(imagePaths: string[] | ImageData[], outputPath: s
 
         const command = ffmpeg();
         const options = {
-            width: 1080,
-            height: 1920,
+            width: 720,
+            height: 1280,
             transitionDuration: 1,
             fps: 30,
             defaultImageDuration: 5, // Default duration for each image in seconds
@@ -188,18 +192,16 @@ function createVideoFromImages(imagePaths: string[] | ImageData[], outputPath: s
 
             const filterComplex = filterComplexParts.join(';');
             const finalOutput = normalizedPaths.length === 1 ? '[scaled0]' : '[output]';
-            // '-movflags', '+faststart',
-            // '-b:v', '2.5M',
-            // '-maxrate', '2.5M',
-            // '-bufsize', '5M',
-            // '-profile:v', 'main',
-            // '-level', '4.0'
             command
                 .complexFilter(filterComplex, [finalOutput])
                 .outputOptions([
-                    '-c:v', 'libx264',
-                    '-preset', 'medium',
+                    '-c:v', 'libx264', // Use software encoding for better compatibility
+                    '-preset', FFMPEG_PRESET,
+                    '-b:v', VIDEO_BITRATE,
+                    '-maxrate', VIDEO_BITRATE,
+                    '-bufsize', BUFFER_SIZE,
                     '-pix_fmt', 'yuv420p',
+                    '-movflags', '+faststart'
                 ])
                 .on('start', cmd => {
                     console.log('FFmpeg command:', cmd);
@@ -305,14 +307,14 @@ async function addAudioAndSubtitles(
         ffmpeg(videoPath)
             .input(audioPath)
             .outputOptions([
-                '-c:v', 'libx264',
-                '-preset', 'medium',
                 '-c:a', 'aac',
-                '-strict', 'experimental',
-                '-ar', '44100',
+                '-b:a', '192k',
+                '-ar', '48000',
                 '-map', '0:v',
                 '-map', '1:a',
-                '-vf', `ass='${subtitlePath.replace(/\\/g, '/').replace(/:/g, '\\:')}':fontsdir='${fontDir.replace(/\\/g, '/').replace(/:/g, '\\:')}'`
+                '-vf', `ass='${subtitlePath.replace(/\\/g, '/').replace(/:/g, '\\:')}':fontsdir='${fontDir.replace(/\\/g, '/').replace(/:/g, '\\:')}'`,
+                '-threads', '0',
+                '-movflags', '+faststart'
             ])
             .on('start', cmd => console.log('FFmpeg command:', cmd))
             .on('progress', (progress) => {
