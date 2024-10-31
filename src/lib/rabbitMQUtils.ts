@@ -6,8 +6,32 @@ import { supabase } from '../db';
 const QUEUE_NAME = 'video-processing';
 const MAX_CONCURRENT_JOBS = Math.max(2, cpus().length - 1);
 
-// Add job status cache
-const jobStatusCache = new Map<string, any>();
+
+export interface NewVideoJob {
+    id: string;
+    data: {
+        sessionId: string;
+        audioFileUrl: string;
+        subtitles: {
+            transcript: {
+                text: string,
+                start: number,
+                end: number,
+                confidence: number,
+            }[]
+        },
+        imagesList: {
+            path: string,
+            id: string,
+            fullPath: string
+        }[],
+    }
+    status: 'queued' | 'processing' | 'completed' | 'failed';
+    progress: number;
+    result?: any;
+    startTime?: number;
+}
+
 
 async function deleteQueueIfExists(channel: Channel) {
     try {
@@ -48,61 +72,30 @@ export async function connectRabbitMQ(): Promise<Channel> {
     });
 }
 
-export async function updateJobStatus(
-    jobId: string,
-    status: 'queued' | 'processing' | 'completed' | 'failed',
-    progress: number,
-    result: any = null
-) {
-    try {
-        const jobStatus = {
-            job_id: jobId,
-            status,
-            progress,
-            result,
-            updated_at: new Date().toISOString()
-        };
+export async function updateJobStatus(jobId: string, status: NewVideoJob['status'], progress: number, result: any = null) {
+    const { error } = await supabase
+        .from('video_status')
+        .upsert({ video_id: jobId, status, progress, result })
 
-        const { error } = await supabase
-            .from('video_status')
-            .upsert({
-                video_id: jobId,
-                status,
-                progress,
-                result,
-                updated_at: new Date().toISOString()
-            });
-
-        if (error) {
-            console.error('Error updating job status in database:', error);
-        }
-
-        return jobStatus;
-    } catch (error) {
-        console.error('Error updating job status:', error);
+    if (error) {
+        console.error('Error updating video status:', error);
         throw error;
     }
 }
 
-export async function getJobStatus(jobId: string): Promise<any> {
-    try {
+export async function getJobStatus(jobId: string): Promise<NewVideoJob | null> {
+    const { data, error } = await supabase
+        .from('video_status')
+        .select('*')
+        .eq('video_id', jobId)
+        .single()
 
-        const { data, error } = await supabase
-            .from('video_status')
-            .select('*')
-            .eq('video_id', jobId)
-            .single();
-
-        if (error) {
-            console.error('Error fetching job status:', error);
-            return null;
-        }
-
-        return data;
-    } catch (error) {
-        console.error('Error getting job status:', error);
+    if (error) {
+        console.error('Error fetching video status:', error);
         return null;
     }
+
+    return data as NewVideoJob | null;
 }
 
 

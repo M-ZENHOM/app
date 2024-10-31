@@ -2,7 +2,6 @@ import { Channel, ConsumeMessage } from 'amqplib';
 import { cpus } from 'os';
 import { connectRabbitMQ, updateJobStatus } from './lib/rabbitMQUtils';
 import { processImageJob } from './lib/ImagesUtils';
-import { processVideoJob } from './processVideoJob';
 import { ImageJob } from './lib/types';
 
 const QUEUE_NAME = 'video-processing';
@@ -48,14 +47,10 @@ function createConsumer(channel: Channel, workerId: number) {
         try {
             activeJobs.add(jobId);
             console.log(`Worker ${workerId} processing job ${jobId}`);
-
-            // Determine job type and process accordingly
-            if (isImageJob(job)) {
-                await processImageJob(job);
-            } else {
-                await processVideoJob(job);
-            }
-
+            // Update job status to 'processing' before starting
+            await updateJobStatus(job.id, 'processing', 0);
+            const result = await processImageJob(job);
+            await updateJobStatus(job.id, 'completed', 100, result);
             channel.ack(msg);
             console.log(`Worker ${workerId} completed job ${jobId}`);
         } catch (error) {
@@ -66,10 +61,6 @@ function createConsumer(channel: Channel, workerId: number) {
             activeJobs.delete(jobId);
         }
     });
-}
-
-function isImageJob(job: any): job is ImageJob {
-    return job?.data?.imagesList !== undefined;
 }
 
 // Start the consumer
