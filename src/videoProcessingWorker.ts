@@ -1,8 +1,7 @@
 import { parentPort } from 'worker_threads';
-import { VideoJob } from './lib/rabbitMQUtils';
 import { processVideoJob } from './processVideoJob';
 
-parentPort?.on('message', async (job: VideoJob) => {
+parentPort?.on('message', async (job) => {
     try {
         const result = await processVideoJob(job);
         parentPort?.postMessage(result);
