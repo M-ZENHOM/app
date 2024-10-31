@@ -63,9 +63,6 @@ export async function updateJobStatus(
             updated_at: new Date().toISOString()
         };
 
-        // Update both cache and database
-        jobStatusCache.set(jobId, jobStatus);
-
         const { error } = await supabase
             .from('video_status')
             .upsert({
@@ -89,12 +86,7 @@ export async function updateJobStatus(
 
 export async function getJobStatus(jobId: string): Promise<any> {
     try {
-        // Check cache first
-        if (jobStatusCache.has(jobId)) {
-            return jobStatusCache.get(jobId);
-        }
 
-        // If not in cache, check database
         const { data, error } = await supabase
             .from('video_status')
             .select('*')
@@ -106,27 +98,13 @@ export async function getJobStatus(jobId: string): Promise<any> {
             return null;
         }
 
-        if (data) {
-            // Update cache
-            jobStatusCache.set(jobId, data);
-            return data;
-        }
-
-        return null;
+        return data;
     } catch (error) {
         console.error('Error getting job status:', error);
         return null;
     }
 }
 
-// Add cache cleanup for completed/failed jobs
-setInterval(() => {
-    for (const [jobId, status] of jobStatusCache.entries()) {
-        if (status.status === 'completed' || status.status === 'failed') {
-            jobStatusCache.delete(jobId);
-        }
-    }
-}, 1800000); // Clean up every 30 minutes
 
 export async function purgeQueue(channel: Channel) {
     await channel.purgeQueue(QUEUE_NAME);
