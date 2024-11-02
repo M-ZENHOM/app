@@ -59,6 +59,7 @@ function createConsumer(channel: Channel, workerId: number) {
             channel.nack(msg, false, false);
         } finally {
             activeJobs.delete(jobId);
+            console.error(`Worker ${workerId} finished job ${jobId}`);
         }
     });
 }
